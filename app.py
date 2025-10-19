@@ -66,8 +66,8 @@ def to_row_index(sign: str, degree: int, minute: int):
     return sign_index * 1800 + degree * 60 + minute
 
 # 🧩 UI 시작
-st.title("🔮 Personal Aspect Mapper (Clean Ver.)")
-st.caption("여러 천체의 위치를 입력하면 내부 aspect를 계산합니다 (중복 없음).")
+st.title("🔮 Personal Aspect Mapper (Lookup Ver.)")
+st.caption("엑셀의 물리적 row 기반으로 lookup하는 방식 (수학 계산 없음).")
 
 # 세션 상태 초기화
 if "points" not in st.session_state:
@@ -92,14 +92,13 @@ if submitted and label:
     st.session_state.points.append((label, row_index))
     st.success(f"✅ {label} 등록 완료 ({sign} {degree}°{minute}′)")
 
-# 현재 등록된 포인트 표시
+# 현재 등록된 포인트 표시 + 개별 삭제
 if st.session_state.points:
     st.markdown("📋 **현재 등록된 지표들:**")
     for i, (label, row) in enumerate(st.session_state.points):
         sign_index = row // 1800
         deg = (row % 1800) // 60
         min_ = row % 60
-
         cols = st.columns([4, 1])
         cols[0].markdown(f"- **{label}** — {SIGN_KEYS[sign_index]} {deg}°{min_}′")
         if cols[1].button("🗑️", key=f"del_{i}"):
@@ -121,40 +120,37 @@ if st.button("🔍 Aspect 계산하기"):
             label2, row2 = st.session_state.points[j]
 
             diff = abs(row1 - row2)
-            diff = min(diff, 21600 - diff)
+            diff = min(diff, 21600 - diff)  # 원형 구조 처리
 
+            # Conjunction 별도 처리
+            if diff <= ORB_RANGES["Conjunction"]:
+                orb_val = diff / 60
+                results.append({
+                    "From": label1,
+                    "To": label2,
+                    "Aspect": "Conjunction",
+                    "Orb": f"{orb_val:.2f}°"
+                })
+                continue
+
+            # 나머지 lookup 기반
             for aspect, orb in ORB_RANGES.items():
-                if aspect == "Conjunction":
-                    if diff <= orb:
-                        orb_val = diff / 60
-                        if not any(r for r in results if {r['From'], r['To']} == {label1, label2} and r['Aspect'] == "Conjunction"):
-                            results.append({
-                                "From": label1,
-                                "To": label2,
-                                "Aspect": "Conjunction",
-                                "Orb": f"{orb_val:.2f}°"
-                            })
-                    continue
-
                 if aspect not in df_aspects.columns:
                     continue
-                try:
-                    target_row = df_aspects.loc[row1, aspect]
-                except:
-                    continue
+
+                target_row = df_aspects.loc[row1, aspect]
                 if pd.isna(target_row):
                     continue
 
-                if abs(diff - abs(target_row - row1)) <= orb:
-                    orb_val = abs(diff - abs(target_row - row1)) / 60
+                # 🎯 단순 lookup 방식
+                diff_to_target = abs(row2 - target_row)
+                diff_to_target = min(diff_to_target, 21600 - diff_to_target)
+
+                if diff_to_target <= orb:
+                    orb_val = diff_to_target / 60
                     clean_aspect = ''.join([c for c in aspect if not c.isdigit()])
-
-                    # 🔍 중복 방지: 동일 Aspect 중복 저장 금지
-                    if any(r for r in results if 
-                           {r['From'], r['To']} == {label1, label2} and 
-                           r['Aspect'] == clean_aspect):
+                    if any(r for r in results if {r['From'], r['To']} == {label1, label2} and r['Aspect'] == clean_aspect):
                         continue
-
                     results.append({
                         "From": label1,
                         "To": label2,
